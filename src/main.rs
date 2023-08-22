@@ -1,127 +1,29 @@
+#![allow(dead_code)]
 use std::cmp::max;
-use std::path::Path;
+use std::time::Instant;
 use image::io::Reader;
-use image::{GenericImage, GenericImageView, Rgb, Rgba};
-use imageproc::definitions::Image;
+use image::{GenericImage, GenericImageView};
 use imageproc::drawing::Canvas;
 use noise::{Abs, NoiseFn, Perlin};
 use rand::{Rng, thread_rng};
+use watermark::Watermark;
 
-
-struct Watermark {
-    width: u32,
-    height: u32,
-    // TODO: Be more efficient
-    data: Vec<bool>
-}
-
-impl Watermark {
-    pub fn load<P>(path: P) -> Watermark
-        where
-            P: AsRef<Path>,
-    {
-        let img = Reader::open(path).unwrap().decode().unwrap();
-        let (width, height) = GenericImageView::dimensions(&img);
-        let raw_rgb = img.as_rgb8().unwrap().as_raw();
-
-        let data_size = (width * height);
-        let mut data = Vec::with_capacity(data_size as usize);
-
-        for i in 0..(data_size as usize) {
-            data.push(
-                raw_rgb[i*3] == 0 && raw_rgb[i*3+1] == 0 && raw_rgb[i*3+2] == 0
-            );
-        }
-
-        Watermark {
-            width,
-            height,
-            data
-        }
-    }
-
-    pub fn get_iter(&self, position: (u32, u32), scale: u32) -> WatermarkIterator {
-        WatermarkIterator::new(position, scale, self)
-    }
-
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    pub fn data(&self) -> &[bool] {
-        &self.data
-    }
-}
-
-struct WatermarkIterator<'a> {
-    watermark: &'a Watermark,
-    position: (u32, u32),
-    scale: u32,
-    scale_index: u32,
-    current_pixel_index: u32
-}
-
-impl<'a> WatermarkIterator<'a> {
-    pub fn new(position: (u32, u32), scale: u32, watermark: &'a Watermark) -> WatermarkIterator {
-        WatermarkIterator {
-            position,
-            watermark,
-            scale,
-            scale_index: 0,
-            current_pixel_index: 0
-        }
-    }
-}
-
-impl Iterator for WatermarkIterator<'_> {
-    type Item = (u32, u32);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.scale_index == 0 && self.current_pixel_index as usize >= self.watermark.data().len() {
-            return None;
-        }
-
-        if self.scale_index == 0 {
-            while !self.watermark.data()[self.current_pixel_index as usize] {
-                self.current_pixel_index += 1;
-                if self.current_pixel_index as usize >= self.watermark.data().len() {
-                    return None;
-                }
-            }
-        }
-
-        let watermark_pos = (
-            ((self.current_pixel_index % self.watermark.width()) * self.scale) + (self.scale_index % self.scale),
-            ((self.current_pixel_index / self.watermark.width()) * self.scale) + (self.scale_index / self.scale)
-        );
-
-        let pos = (self.position.0 + watermark_pos.0, self.position.1 + watermark_pos.1);
-
-        self.scale_index += 1;
-        if self.scale_index >= self.scale * self.scale {
-            self.scale_index = 0;
-            self.current_pixel_index += 1;
-        }
-        Some(pos)
-    }
-}
+mod watermark;
 
 fn main() {
     const OFFSET: u32 = 0;
     const WATERMARK_INTERVAL: u32 = 600;
     const SCALE: u32 = 3;
 
-    println!("Caching watermark");
+    print!("Caching watermark...");
+    let start = Instant::now();
     let watermark = Watermark::load("watermark.png");
+    println!(" {:?}", start.elapsed());
 
-    println!("Loading image");
+    print!("Loading image...");
+    let start = Instant::now();
     let mut img = Reader::open("input.jpg").unwrap().decode().unwrap();
     let (width, height) = GenericImageView::dimensions(&img);
-
     let mut rgb_raw;
     let rgba = img.as_mut_rgba8();
     let has_alpha = if rgba.is_some() {
@@ -132,8 +34,10 @@ fn main() {
         rgb_raw = img.as_mut_rgb8().unwrap().as_mut();
         false
     };
+    println!(" {:?}", start.elapsed());
 
-    println!("Adjusting image");
+    print!("Adjusting image...");
+    let start = Instant::now();
     let mut rand = thread_rng();
     let noise = [
         Abs::new(Perlin::new(rand.gen())),
@@ -147,13 +51,13 @@ fn main() {
     let ycount = 1+(height / WATERMARK_INTERVAL);
 
     let noise_scale_factor =
-        max(xcount, ycount) as f64 /
+        (max(xcount, ycount) * 4) as f64 /
             (
                 max(width, height)
             ) as f64;
 
     let mini_noise_scale_factor =
-        max(watermark.width(), watermark.height) as f64 /
+        max(watermark.width(), watermark.height()) as f64 /
             (
                 max(width, height) * 5
             ) as f64;
@@ -187,7 +91,7 @@ fn main() {
                         position.0 as f64 * noise_scale_factor,
                         position.1 as f64 * noise_scale_factor
                     ]
-                ).powf(0.75);
+                ).sqrt();
                 let mut i = 0;
                 for c in &mut colour {
                      let strength = strength * noise[i].get(
@@ -199,7 +103,7 @@ fn main() {
 
                     let dist = 255 - *c;
                     let min = 0;
-                    let max = (dist / 4) * 3;
+                    let max = dist - (dist / 5);
                     let effect = if min != max {
                         rand.gen_range(min..max)
                     }
@@ -220,7 +124,10 @@ fn main() {
             }
         }
     }
+    println!(" {:?}", start.elapsed());
 
-    println!("Saving image");
+    print!("Saving image...");
+    let start = Instant::now();
     img.save("output.jpg").unwrap();
+    println!(" {:?}", start.elapsed());
 }
