@@ -7,13 +7,13 @@ use imageproc::drawing::Canvas;
 use noise::{Abs, NoiseFn, Perlin};
 use rand::{Rng, thread_rng};
 use watermark::Watermark;
+use crate::config::Config;
 
 mod watermark;
+mod config;
 
 fn main() {
-    const OFFSET: u32 = 0;
-    const WATERMARK_INTERVAL: u32 = 600;
-    const SCALE: u32 = 3;
+    let config = Config::get_config_or_default("config.json");
 
     print!("Caching watermark...");
     let start = Instant::now();
@@ -47,8 +47,8 @@ fn main() {
     ];
 
 
-    let xcount = 1+(width / WATERMARK_INTERVAL);
-    let ycount = 1+(height / WATERMARK_INTERVAL);
+    let xcount = 1+(width / config.watermark_interval);
+    let ycount = 1+(height / config.watermark_interval);
 
     let noise_scale_factor =
         (max(xcount, ycount) * 4) as f64 /
@@ -65,9 +65,9 @@ fn main() {
     for wx in 0..xcount {
         for wy in 0..ycount {
             let iter = watermark.get_iter(
-                (OFFSET + wx * WATERMARK_INTERVAL,
-                 OFFSET + wy * WATERMARK_INTERVAL),
-                SCALE
+                (config.offset + wx * config.watermark_interval,
+                 config.offset + wy * config.watermark_interval),
+                config.scale
             );
             for position in iter {
                 if position.0 >= width || position.1 >= height {
