@@ -1,13 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    pub offset: u32,// = 0;
-    pub watermark_interval: u32,// = 400;
-    pub scale: u32,// = 2;
+    pub offset: u32,             // = 0;
+    pub watermark_interval: u32, // = 400;
+    pub scale: u32,              // = 2;
 }
 
 impl Config {
@@ -33,7 +32,7 @@ impl Default for Config {
         Config {
             offset: 0,
             watermark_interval: 400,
-            scale: 2
+            scale: 2,
         }
     }
 }

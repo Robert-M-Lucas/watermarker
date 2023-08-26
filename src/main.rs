@@ -1,16 +1,15 @@
 #![allow(dead_code)]
+use crate::config::Config;
+use image::io::Reader;
+use image::GenericImageView;
+use noise::{Abs, NoiseFn, Perlin};
+use rand::{thread_rng, Rng};
 use std::cmp::max;
 use std::time::Instant;
-use image::io::Reader;
-use image::{GenericImage, GenericImageView};
-use imageproc::drawing::Canvas;
-use noise::{Abs, NoiseFn, Perlin};
-use rand::{Rng, thread_rng};
 use watermark::Watermark;
-use crate::config::Config;
 
-mod watermark;
 mod config;
+mod watermark;
 
 fn main() {
     let config = Config::get_config_or_default("config.json");
@@ -24,13 +23,12 @@ fn main() {
     let start = Instant::now();
     let mut img = Reader::open("input.jpg").unwrap().decode().unwrap();
     let (width, height) = GenericImageView::dimensions(&img);
-    let mut rgb_raw;
+    let rgb_raw;
     let rgba = img.as_mut_rgba8();
-    let has_alpha = if rgba.is_some() {
-        rgb_raw = rgba.unwrap().as_mut();
+    let has_alpha = if let Some(rgba) = rgba {
+        rgb_raw = rgba.as_mut();
         true
-    }
-    else {
+    } else {
         rgb_raw = img.as_mut_rgb8().unwrap().as_mut();
         false
     };
@@ -46,28 +44,22 @@ fn main() {
         Abs::new(Perlin::new(rand.gen())),
     ];
 
+    let x_count = 1 + (width / config.watermark_interval);
+    let y_count = 1 + (height / config.watermark_interval);
 
-    let xcount = 1+(width / config.watermark_interval);
-    let ycount = 1+(height / config.watermark_interval);
-
-    let noise_scale_factor =
-        (max(xcount, ycount) * 4) as f64 /
-            (
-                max(width, height)
-            ) as f64;
+    let noise_scale_factor = (max(x_count, y_count) * 4) as f64 / (max(width, height)) as f64;
 
     let mini_noise_scale_factor =
-        max(watermark.width(), watermark.height()) as f64 /
-            (
-                max(width, height) * 5
-            ) as f64;
+        max(watermark.width(), watermark.height()) as f64 / (max(width, height) * 5) as f64;
 
-    for wx in 0..xcount {
-        for wy in 0..ycount {
+    for wx in 0..x_count {
+        for wy in 0..y_count {
             let iter = watermark.get_iter(
-                (config.offset + wx * config.watermark_interval,
-                 config.offset + wy * config.watermark_interval),
-                config.scale
+                (
+                    config.offset + wx * config.watermark_interval,
+                    config.offset + wy * config.watermark_interval,
+                ),
+                config.scale,
             );
             for position in iter {
                 if position.0 >= width || position.1 >= height {
@@ -75,44 +67,42 @@ fn main() {
                 }
                 let raw_pixel_pos = if has_alpha {
                     (((position.1 * width) + position.0) * 4) as usize
-                }
-                else {
+                } else {
                     (((position.1 * width) + position.0) * 3) as usize
                 };
 
                 let mut colour = [
                     rgb_raw[raw_pixel_pos],
                     rgb_raw[raw_pixel_pos + 1],
-                    rgb_raw[raw_pixel_pos + 2]
+                    rgb_raw[raw_pixel_pos + 2],
                 ];
 
-                let strength = noise[3].get(
-                    [
+                let strength = noise[3]
+                    .get([
                         position.0 as f64 * noise_scale_factor,
-                        position.1 as f64 * noise_scale_factor
-                    ]
-                ).sqrt();
-                let mut i = 0;
-                for c in &mut colour {
-                     let strength = strength * noise[i].get(
-                        [
-                            position.0 as f64 * mini_noise_scale_factor,
-                            position.1 as f64 * mini_noise_scale_factor
-                        ]
-                    ).sqrt();
+                        position.1 as f64 * noise_scale_factor,
+                    ])
+                    .sqrt();
+
+                for (i, c) in colour.iter_mut().enumerate() {
+                    let strength = strength
+                        * noise[i]
+                            .get([
+                                position.0 as f64 * mini_noise_scale_factor,
+                                position.1 as f64 * mini_noise_scale_factor,
+                            ])
+                            .sqrt();
 
                     let dist = 255 - *c;
                     let min = 0;
                     let max = dist - (dist / 5);
                     let effect = if min != max {
                         rand.gen_range(min..max)
-                    }
-                    else {
+                    } else {
                         max
                     };
                     let effect = (effect as f64 * strength) as u8;
                     *c += effect;
-                    i += 1;
                 }
 
                 rgb_raw[raw_pixel_pos] = colour[0];
